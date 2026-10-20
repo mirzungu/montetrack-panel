@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="sr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Montetrack – Radni nalozi</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root { --red:#DF2629; --navy:#1B1F38; --bg:#F5F6F8; --line:#E3E5EA; --muted:#6B7280; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:#1F2330; font-size:14px; }
+  button { font:inherit; cursor:pointer; border:0; border-radius:8px; padding:8px 14px; }
+  .btn-red { background:var(--red); color:#fff; }
+  .btn-red:hover { filter:brightness(.92); }
+  .btn-ghost { background:transparent; color:#fff; border:1px solid rgba(255,255,255,.35); }
+  .btn-light { background:#fff; border:1px solid var(--line); }
+  input, select, textarea { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:#fff; width:100%; }
+  input:focus, select:focus, textarea:focus { outline:2px solid rgba(223,38,41,.25); border-color:var(--red); }
+  [hidden] { display:none !important; }
+
+  /* Prijava */
+  #login { min-height:100vh; display:grid; place-items:center; }
+  .login-card { background:#fff; padding:36px; border-radius:16px; width:340px; box-shadow:0 8px 30px rgba(0,0,0,.08); text-align:center; }
+  .login-card img { width:170px; margin-bottom:24px; }
+  .login-card input { margin-bottom:10px; }
+  .login-card button { width:100%; padding:11px; }
+  .err { color:var(--red); min-height:20px; margin:6px 0; }
+
+  /* Zaglavlje */
+  header { background:var(--navy); color:#fff; display:flex; align-items:center; gap:14px; padding:10px 24px; position:sticky; top:0; z-index:5; }
+  header img { height:32px; }
+  .brand b { display:block; letter-spacing:1.5px; font-size:16px; }
+  .brand span { font-size:12px; opacity:.7; }
+  header .spacer { flex:1; }
+  #user { opacity:.75; font-size:13px; }
+
+  main { padding:20px 24px; max-width:1400px; margin:0 auto; }
+  .stats { display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  .stat { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 16px; min-width:120px; cursor:pointer; }
+  .stat b { display:block; font-size:22px; }
+  .stat.active { outline:2px solid var(--navy); }
+  .toolbar { display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
+  .toolbar input { flex:1; min-width:220px; }
+  .toolbar select { width:auto; }
+
+  table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); border-radius:10px; overflow:hidden; }
+  th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { background:#FAFBFC; font-weight:600; color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.4px; }
+  tbody tr { cursor:pointer; }
+  tbody tr:hover { background:#FFF6F6; }
+  .pill { display:inline-block; padding:3px 10px; border-radius:999px; font-size:12px; font-weight:600; white-space:nowrap; }
+  .muted { color:var(--muted); font-size:12px; }
+  .mono { font-family:ui-monospace,Consolas,monospace; font-size:13px; }
+  .empty { text-align:center; padding:40px; color:var(--muted); }
+
+  /* Detalj naloga */
+  #modal { position:fixed; inset:0; background:rgba(20,22,40,.45); display:grid; place-items:center; z-index:10; padding:20px; }
+  .sheet { background:#fff; border-radius:14px; width:min(900px,100%); max-height:92vh; overflow:auto; }
+  .sheet-head { background:var(--navy); color:#fff; padding:14px 22px; display:flex; align-items:center; position:sticky; top:0; z-index:2; }
+  .sheet-head h2 { margin:0; font-size:17px; flex:1; }
+  .sheet-body { padding:20px 22px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:12px 16px; }
+  .grid .full { grid-column:1 / -1; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  h3 { font-size:14px; margin:22px 0 10px; color:var(--navy); border-bottom:1px solid var(--line); padding-bottom:6px; }
+  .equip { display:grid; grid-template-columns:160px 1fr; gap:8px 12px; align-items:center; }
+  .equip label.chk { display:flex; gap:8px; align-items:center; color:#1F2330; font-size:14px; margin:0; }
+  .equip input[type=checkbox] { width:18px; height:18px; accent-color:var(--red); }
+  .photos { display:flex; gap:10px; flex-wrap:wrap; }
+  .photos img { width:150px; height:110px; object-fit:cover; border-radius:8px; border:1px solid var(--line); cursor:zoom-in; }
+  .sheet-foot { padding:14px 22px; border-top:1px solid var(--line); display:flex; gap:10px; justify-content:flex-end; position:sticky; bottom:0; background:#fff; }
+  @media (max-width:700px) { .grid { grid-template-columns:1fr; } main, header { padding-left:12px; padding-right:12px; } }
+</style>
+</head>
+<body>
+
+<!-- PRIJAVA -->
+<section id="login" hidden>
+  <form class="login-card" id="login-form">
+    <img src="logo_montetrack.png" alt="Montetrack" onerror="this.style.display='none'">
+    <input id="email" type="email" placeholder="Email" required autocomplete="username">
+    <input id="password" type="password" placeholder="Lozinka" required autocomplete="current-password">
+    <div class="err" id="login-err"></div>
+    <button class="btn-red" type="submit">Prijavi se</button>
+  </form>
+</section>
+
+<!-- APLIKACIJA -->
+<section id="app" hidden>
+  <header>
+    <img src="logo_znak.png" alt="" onerror="this.style.display='none'">
+    <div class="brand"><b>MONTETRACK</b><span>Radni nalozi – dispečerski panel</span></div>
+    <div class="spacer"></div>
+    <span id="user"></span>
+    <button class="btn-ghost" id="btn-refresh">⟳ Osveži</button>
+    <button class="btn-ghost" id="btn-csv">⬇ Excel</button>
+    <button class="btn-ghost" id="btn-logout">Odjava</button>
+  </header>
+
+  <main>
+    <div class="stats" id="stats"></div>
+    <div class="toolbar">
+      <input id="search" placeholder="Pretraga: klijent, tablice, IMEI, ICCID, adresa…">
+      <select id="f-status"></select>
+      <select id="f-job"></select>
+      <button class="btn-red" id="btn-new">+ Novi nalog</button>
+    </div>
+    <table>
+      <thead><tr>
+        <th>Izmenjen</th><th>Klijent</th><th>Vozilo</th><th>Posao</th>
+        <th>Status</th><th>IMEI / ICCID</th><th>Dodatna oprema</th><th>Slike</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </main>
+</section>
+
+<!-- DETALJ NALOGA -->
+<div id="modal" hidden>
+  <div class="sheet">
+    <div class="sheet-head">
+      <h2 id="modal-title">Nalog</h2>
+      <button class="btn-ghost" id="btn-close">✕</button>
+    </div>
+    <form id="order-form" class="sheet-body">
+      <div class="grid">
+        <div><label>Status</label><select name="status" id="m-status"></select></div>
+        <div><label>Tip posla</label><select name="job_type" id="m-job"></select></div>
+      </div>
+
+      <h3>Klijent</h3>
+      <div class="grid">
+        <div><label>Naziv klijenta</label><input name="client_name"></div>
+        <div><label>Telefon</label><input name="contact_phone"></div>
+        <div class="full"><label>Adresa</label><input name="address"></div>
+      </div>
+
+      <h3>Vozilo</h3>
+      <div class="grid">
+        <div><label>Registarske oznake</label><input name="vehicle_plate" style="text-transform:uppercase"></div>
+        <div><label>Marka i model</label><input name="vehicle_model"></div>
+      </div>
+
+      <h3>GPS uređaj</h3>
+      <div class="grid">
+        <div><label>IMEI</label><input name="imei" class="mono"></div>
+        <div><label>ICCID SIM kartice</label><input name="iccid" class="mono"></div>
+      </div>
+
+      <h3>Dodatna oprema</h3>
+      <div class="equip" id="equip"></div>
+
+      <h3>Fotografije vozila</h3>
+      <div class="photos" id="photos"><span class="muted">Nema fotografija</span></div>
+
+      <h3>Napomena</h3>
+      <textarea name="notes" rows="3"></textarea>
+      <p class="muted" id="meta"></p>
+    </form>
+    <div class="sheet-foot">
+      <button class="btn-light" id="btn-cancel">Zatvori</button>
+      <button class="btn-red" id="btn-save">Sačuvaj</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ====== PODEŠAVANJA ======
+const SUPABASE_URL = 'https://urtskscrqdeuuxbicslr.supabase.co';   // <-- vaš Project URL
+const SUPABASE_KEY = 'sb_publishable_89hIx8mqPlEHs3cSFjfF_w_Ryl0zfbG';           // <-- vaš publishable key
+const BUCKET = 'vehicle-photos';
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const STATUS = {
+  DODELJEN: ['Dodeljen', '#6B7280'], U_DOLASKU: ['U dolasku', '#2563EB'],
+  U_RADU: ['U radu', '#F59E0B'], ZAVRSEN: ['Završen', '#16A34A'], PROBLEM: ['Problem', '#DF2629']
+};
+const JOBS = { UGRADNJA: 'Ugradnja', SERVIS: 'Servis', ZAMENA: 'Zamena', DEMONTAZA: 'Demontaža' };
+const EQUIP = [
+  ['has_rfid', 'rfid_model', 'RFID'], ['has_can', 'can_model', 'CAN'],
+  ['has_sonda', 'sonda_model', 'Sonda za gorivo'], ['has_protokomer', 'protokomer_model', 'Protokomer']
+];
+
+let orders = [];
+let editing = null;     // nalog koji se menja; null = novi nalog
+let statusFilter = '';
+
+const $ = s => document.querySelector(s);
+const esc = v => String(v ?? '').replace(/[&<>"']/g,
+  c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const fmtDate = d => d ? new Date(d).toLocaleString('sr-Latn-RS',
+  { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '';
+const pill = s => {
+  const [label, color] = STATUS[s] || [s, '#6B7280'];
+  return `<span class="pill" style="background:${color}22;color:${color}">${esc(label)}</span>`;
+};
+const equipText = o => EQUIP.filter(([h]) => o[h]).map(([, , l]) => l).join(', ');
+
+// ====== Popunjavanje padajućih menija i opreme ======
+const opts = (obj, first) => (first ? `<option value="">${first}</option>` : '') +
+  Object.entries(obj).map(([k, v]) => `<option value="${k}">${Array.isArray(v) ? v[0] : v}</option>`).join('');
+$('#f-status').innerHTML = opts(STATUS, 'Svi statusi');
+$('#f-job').innerHTML = opts(JOBS, 'Svi poslovi');
+$('#m-status').innerHTML = opts(STATUS);
+$('#m-job').innerHTML = opts(JOBS);
+$('#equip').innerHTML = EQUIP.map(([h, m, l]) =>
+  `<label class="chk"><input type="checkbox" name="${h}"> ${l}</label>
+   <input name="${m}" placeholder="Model / serijski broj">`).join('');
+
+// ====== Prijava ======
+sb.auth.onAuthStateChange((event, session) => {
+  if (['INITIAL_SESSION', 'SIGNED_IN', 'SIGNED_OUT'].includes(event)) showApp(session);
+});
+
+function showApp(session) {
+  $('#login').hidden = !!session;
+  $('#app').hidden = !session;
+  if (session) { $('#user').textContent = session.user.email; load(); }
+}
+
+$('#login-form').onsubmit = async e => {
+  e.preventDefault();
+  $('#login-err').textContent = '';
+  const { error } = await sb.auth.signInWithPassword({
+    email: $('#email').value.trim(), password: $('#password').value
+  });
+  if (error) $('#login-err').textContent = error.message.includes('Invalid')
+    ? 'Pogrešan email ili lozinka' : 'Greška: ' + error.message;
+};
+$('#btn-logout').onclick = () => sb.auth.signOut();
+
+// ====== Učitavanje i prikaz ======
+async function load() {
+  const { data, error } = await sb.from('work_orders').select('*')
+    .order('updated_at', { ascending: false }).limit(2000);
+  if (error) { alert('Greška pri učitavanju: ' + error.message); return; }
+  orders = data;
+  render();
+}
+
+function filtered() {
+  const q = $('#search').value.trim().toLowerCase();
+  const st = $('#f-status').value || statusFilter;
+  const job = $('#f-job').value;
+  return orders.filter(o =>
+    (!st || o.status === st) && (!job || o.job_type === job) &&
+    (!q || [o.client_name, o.vehicle_plate, o.vehicle_model, o.imei, o.iccid, o.address, o.contact_phone]
+      .some(v => (v || '').toLowerCase().includes(q))));
+}
+
+function render() {
+  const counts = Object.fromEntries(Object.keys(STATUS).map(k => [k, 0]));
+  orders.forEach(o => { if (counts[o.status] !== undefined) counts[o.status]++; });
+  $('#stats').innerHTML =
+    `<div class="stat ${!statusFilter ? 'active' : ''}" data-s=""><span class="muted">Ukupno</span><b>${orders.length}</b></div>` +
+    Object.entries(STATUS).map(([k, [l, c]]) =>
+      `<div class="stat ${statusFilter === k ? 'active' : ''}" data-s="${k}">
+         <span class="muted">${l}</span><b style="color:${c}">${counts[k]}</b></div>`).join('');
+
+  const list = filtered();
+  $('#rows').innerHTML = list.length ? list.map(o => `
+    <tr data-id="${esc(o.id)}">
+      <td>${fmtDate(o.updated_at)}</td>
+      <td><b>${esc(o.client_name) || '<span class="muted">(bez imena)</span>'}</b><div class="muted">${esc(o.address)}</div></td>
+      <td><b>${esc(o.vehicle_plate)}</b><div class="muted">${esc(o.vehicle_model)}</div></td>
+      <td>${esc(JOBS[o.job_type] || o.job_type)}</td>
+      <td>${pill(o.status)}</td>
+      <td class="mono">${esc(o.imei)}<div class="muted mono">${esc(o.iccid)}</div></td>
+      <td>${esc(equipText(o))}</td>
+      <td>${(o.photos || []).length || ''}</td>
+    </tr>`).join('') : `<tr><td colspan="8" class="empty">Nema naloga za prikaz</td></tr>`;
+}
+
+$('#stats').onclick = e => {
+  const el = e.target.closest('.stat'); if (!el) return;
+  statusFilter = el.dataset.s; $('#f-status').value = ''; render();
+};
+['#search', '#f-status', '#f-job'].forEach(s => $(s).oninput = () => {
+  if (s === '#f-status') statusFilter = '';
+  render();
+});
+$('#rows').onclick = e => {
+  const tr = e.target.closest('tr[data-id]');
+  if (tr) openOrder(orders.find(o => o.id === tr.dataset.id));
+};
+$('#btn-refresh').onclick = load;
+$('#btn-new').onclick = () => openOrder(null);
+
+// ====== Detalj naloga ======
+async function openOrder(o) {
+  editing = o;
+  const f = $('#order-form');
+  f.reset();
+  $('#modal-title').textContent = o ? `Nalog – ${o.client_name || o.vehicle_plate || ''}` : 'Novi nalog';
+  if (o) {
+    for (const el of f.elements) {
+      if (!el.name) continue;
+      if (el.type === 'checkbox') el.checked = !!o[el.name];
+      else el.value = o[el.name] ?? '';
+    }
+    $('#meta').textContent = `Kreiran: ${fmtDate(o.created_at)} · Poslednja izmena: ${fmtDate(o.updated_at)}`;
+  } else {
+    $('#meta').textContent = '';
+  }
+  $('#photos').innerHTML = '<span class="muted">Nema fotografija</span>';
+  $('#modal').hidden = false;
+
+  const paths = o?.photos || [];
+  if (paths.length) {
+    $('#photos').innerHTML = '<span class="muted">Učitavam fotografije…</span>';
+    const { data, error } = await sb.storage.from(BUCKET).createSignedUrls(paths, 3600);
+    if (error) { $('#photos').innerHTML = `<span class="muted">Greška: ${esc(error.message)}</span>`; return; }
+    $('#photos').innerHTML = data.filter(d => d.signedUrl).map(d =>
+      `<a href="${esc(d.signedUrl)}" target="_blank" rel="noopener"><img src="${esc(d.signedUrl)}" loading="lazy"></a>`
+    ).join('') || '<span class="muted">Fotografije još nisu poslate sa telefona</span>';
+  }
+}
+
+function closeModal() { $('#modal').hidden = true; editing = null; }
+$('#btn-close').onclick = closeModal;
+$('#btn-cancel').onclick = closeModal;
+$('#modal').onclick = e => { if (e.target.id === 'modal') closeModal(); };
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !$('#modal').hidden) closeModal(); });
+
+$('#btn-save').onclick = async () => {
+  const row = {};
+  for (const el of $('#order-form').elements) {
+    if (!el.name) continue;
+    row[el.name] = el.type === 'checkbox' ? el.checked : el.value.trim();
+  }
+  row.vehicle_plate = row.vehicle_plate.toUpperCase();
+  $('#btn-save').disabled = true;
+  const { error } = editing
+    ? await sb.from('work_orders').update(row).eq('id', editing.id)
+    : await sb.from('work_orders').insert(row);
+  $('#btn-save').disabled = false;
+  if (error) { alert('Čuvanje nije uspelo: ' + error.message); return; }
+  closeModal();
+  load();
+};
+
+// ====== Izvoz u Excel (CSV) ======
+$('#btn-csv').onclick = () => {
+  const cols = [
+    ['created_at', 'Kreiran'], ['updated_at', 'Izmenjen'], ['status', 'Status'], ['job_type', 'Posao'],
+    ['client_name', 'Klijent'], ['address', 'Adresa'], ['contact_phone', 'Telefon'],
+    ['vehicle_plate', 'Tablice'], ['vehicle_model', 'Vozilo'], ['imei', 'IMEI'], ['iccid', 'ICCID'],
+    ['rfid_model', 'RFID'], ['can_model', 'CAN'], ['sonda_model', 'Sonda'], ['protokomer_model', 'Protokomer'],
+    ['notes', 'Napomena']
+  ];
+  const cell = (o, k) => {
+    if (k === 'created_at' || k === 'updated_at') return fmtDate(o[k]);
+    if (k === 'status') return (STATUS[o.status] || [o.status])[0];
+    if (k === 'job_type') return JOBS[o.job_type] || o.job_type;
+    if (k === 'imei' || k === 'iccid') return o[k] ? `="${o[k]}"` : '';   // da Excel ne pokvari dugačke brojeve
+    const eq = EQUIP.find(([, m]) => m === k);
+    if (eq) return o[eq[0]] ? (o[k] || 'Da') : '';
+    return o[k] ?? '';
+  };
+  const lines = [cols.map(c => c[1]), ...filtered().map(o => cols.map(([k]) => cell(o, k)))]
+    .map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(';'));
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `radni-nalozi-${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+// Automatsko osvežavanje svakog minuta (osim dok je otvoren nalog)
+setInterval(() => { if (!$('#app').hidden && $('#modal').hidden) load(); }, 60000);
+</script>
+</body>
+</html>
