@@ -17,6 +17,8 @@
   .btn-ghost { background:transparent; color:#fff; border:1px solid rgba(255,255,255,.35); }
   .btn-light { background:#fff; border:1px solid var(--line); }
   .btn-light:hover { background:#F3F4F6; }
+  .btn-danger { background:#fff; color:var(--red); border:1px solid var(--red); }
+  .btn-danger:hover { background:#FFF1F1; }
   input, select, textarea { font:inherit; padding:8px 10px; border:1px solid var(--line); border-radius:8px; background:#fff; width:100%; }
   input:focus, select:focus, textarea:focus { outline:2px solid rgba(223,38,41,.25); border-color:var(--red); }
   [hidden] { display:none !important; }
@@ -43,6 +45,10 @@
   .toolbar { display:flex; gap:10px; margin-bottom:12px; flex-wrap:wrap; }
   .toolbar input { flex:1; min-width:220px; }
   .toolbar select { width:auto; }
+  .toolbar.dates { align-items:center; gap:8px; }
+  .toolbar.dates input[type=date] { flex:0 0 auto; width:auto; min-width:0; }
+  .toolbar.dates button { padding:7px 12px; }
+  .toolbar.dates button.on { background:var(--navy); color:#fff; border-color:var(--navy); }
 
   table { width:100%; border-collapse:collapse; background:#fff; border:1px solid var(--line); }
   th, td { text-align:left; padding:10px 12px; border-bottom:1px solid var(--line); vertical-align:top; }
@@ -68,7 +74,7 @@
   .equip input[type=checkbox] { width:18px; height:18px; accent-color:var(--red); }
   .photos { display:flex; gap:10px; flex-wrap:wrap; }
   .photos img { width:150px; height:110px; object-fit:cover; border-radius:8px; border:1px solid var(--line); cursor:zoom-in; }
-  .sheet-foot { padding:14px 22px; border-top:1px solid var(--line); display:flex; gap:10px; position:sticky; bottom:0; background:#fff; }
+  .sheet-foot { padding:14px 22px; border-top:1px solid var(--line); display:flex; gap:10px; position:sticky; bottom:0; background:#fff; flex-wrap:wrap; }
   .sheet-foot .spacer { flex:1; }
   @media (max-width:700px) { .grid { grid-template-columns:1fr; } main, header { padding-left:12px; padding-right:12px; } }
 </style>
@@ -105,9 +111,22 @@
       <select id="f-tech"></select>
       <button class="btn-red" id="btn-new">+ Novi nalog</button>
     </div>
+    <div class="toolbar dates">
+      <select id="f-datefield">
+        <option value="created_at">Datum kreiranja</option>
+        <option value="updated_at">Datum izmene</option>
+      </select>
+      <span class="muted">od</span><input type="date" id="f-from">
+      <span class="muted">do</span><input type="date" id="f-to">
+      <button class="btn-light" data-range="today">Danas</button>
+      <button class="btn-light" data-range="week">Ova nedelja</button>
+      <button class="btn-light" data-range="month">Ovaj mesec</button>
+      <button class="btn-light" data-range="lastmonth">Prošli mesec</button>
+      <button class="btn-light" data-range="">✕ Svi datumi</button>
+    </div>
     <table>
       <thead><tr>
-        <th>Br.</th><th>Izmenjen</th><th>Klijent</th><th>Vozilo</th><th>Posao</th>
+        <th>Br.</th><th id="th-date">Kreiran</th><th>Klijent</th><th>Vozilo</th><th>Posao</th>
         <th>Status</th><th>Tehničar</th><th>IMEI / ICCID</th><th>Oprema</th><th>Slike</th>
       </tr></thead>
       <tbody id="rows"></tbody>
@@ -160,6 +179,7 @@
     <div class="sheet-foot">
       <button class="btn-light" id="btn-pdf">📄 PDF naloga</button>
       <button class="btn-light" id="btn-zip">🖼 Slike (ZIP)</button>
+      <button class="btn-danger" id="btn-delete">🗑 Obriši</button>
       <div class="spacer"></div>
       <button class="btn-light" id="btn-cancel">Zatvori</button>
       <button class="btn-red" id="btn-save">Sačuvaj</button>
@@ -189,6 +209,8 @@ let orders = [];
 let techs = [];
 let editing = null;
 let statusFilter = '';
+let myId = null;
+let myRole = null;
 
 const $ = s => document.querySelector(s);
 const esc = v => String(v ?? '').replace(/[&<>"']/g,
@@ -247,6 +269,7 @@ sb.auth.onAuthStateChange((event, session) => {
 function showApp(session) {
   $('#login').hidden = !!session;
   $('#app').hidden = !session;
+  myId = session?.user.id || null;
   if (session) { $('#user').textContent = session.user.email; load(); }
 }
 
@@ -271,9 +294,47 @@ async function load() {
   if (p.error) { alert('Greška pri učitavanju tehničara: ' + p.error.message); }
   orders = o.data;
   techs = p.data || [];
+  myRole = techs.find(t => t.id === myId)?.role || null;
   fillTechSelects();
   render();
 }
+
+// ====== Filter po datumu ======
+const dateField = () => $('#f-datefield').value;
+const ymd = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+function inDateRange(o) {
+  const from = $('#f-from').value, to = $('#f-to').value;
+  if (!from && !to) return true;
+  const v = o[dateField()];
+  if (!v) return false;
+  const t = new Date(v);
+  if (from && t < new Date(from + 'T00:00:00')) return false;
+  if (to && t > new Date(to + 'T23:59:59.999')) return false;
+  return true;
+}
+
+function setRange(kind) {
+  const now = new Date();
+  let from = '', to = '';
+  if (kind === 'today') {
+    from = to = ymd(now);
+  } else if (kind === 'week') {
+    const mon = new Date(now); mon.setDate(now.getDate() - ((now.getDay() + 6) % 7));
+    from = ymd(mon); to = ymd(now);
+  } else if (kind === 'month') {
+    from = ymd(new Date(now.getFullYear(), now.getMonth(), 1)); to = ymd(now);
+  } else if (kind === 'lastmonth') {
+    from = ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1));
+    to = ymd(new Date(now.getFullYear(), now.getMonth(), 0));
+  }
+  $('#f-from').value = from;
+  $('#f-to').value = to;
+  document.querySelectorAll('[data-range]').forEach(b =>
+    b.classList.toggle('on', !!kind && b.dataset.range === kind));
+  render();
+}
+document.querySelectorAll('[data-range]').forEach(b => b.onclick = () => setRange(b.dataset.range));
 
 function filtered() {
   const q = $('#search').value.trim().toLowerCase();
@@ -281,6 +342,7 @@ function filtered() {
   const job = $('#f-job').value;
   const tech = $('#f-tech').value;
   return orders.filter(o =>
+    inDateRange(o) &&
     (!st || o.status === st) &&
     (!job || o.job_type === job) &&
     (!tech || (tech === '__none' ? !o.assigned_to : o.assigned_to === tech)) &&
@@ -290,19 +352,23 @@ function filtered() {
 }
 
 function render() {
+  const inRange = orders.filter(inDateRange);
   const counts = Object.fromEntries(Object.keys(STATUS).map(k => [k, 0]));
-  orders.forEach(o => { if (counts[o.status] !== undefined) counts[o.status]++; });
+  inRange.forEach(o => { if (counts[o.status] !== undefined) counts[o.status]++; });
   $('#stats').innerHTML =
-    `<div class="stat ${!statusFilter ? 'active' : ''}" data-s=""><span class="muted">Ukupno</span><b>${orders.length}</b></div>` +
+    `<div class="stat ${!statusFilter ? 'active' : ''}" data-s=""><span class="muted">Ukupno</span><b>${inRange.length}</b></div>` +
     Object.entries(STATUS).map(([k, [l, c]]) =>
       `<div class="stat ${statusFilter === k ? 'active' : ''}" data-s="${k}">
          <span class="muted">${l}</span><b style="color:${c}">${counts[k]}</b></div>`).join('');
+
+  const df = dateField();
+  $('#th-date').textContent = df === 'created_at' ? 'Kreiran' : 'Izmenjen';
 
   const list = filtered();
   $('#rows').innerHTML = list.length ? list.map(o => `
     <tr data-id="${esc(o.id)}">
       <td><b>${esc(o.broj)}</b></td>
-      <td>${fmtDate(o.updated_at)}</td>
+      <td>${fmtDate(o[df])}</td>
       <td><b>${esc(o.client_name) || '<span class="muted">(bez imena)</span>'}</b><div class="muted">${esc(o.address)}</div></td>
       <td><b>${esc(o.vehicle_plate)}</b><div class="muted">${esc(o.vehicle_model)}</div></td>
       <td>${esc(JOBS[o.job_type] || o.job_type)}</td>
@@ -318,8 +384,12 @@ $('#stats').onclick = e => {
   const el = e.target.closest('.stat'); if (!el) return;
   statusFilter = el.dataset.s; $('#f-status').value = ''; render();
 };
-['#search', '#f-status', '#f-job', '#f-tech'].forEach(s => $(s).oninput = () => {
+['#search', '#f-status', '#f-job', '#f-tech', '#f-datefield'].forEach(s => $(s).oninput = () => {
   if (s === '#f-status') statusFilter = '';
+  render();
+});
+['#f-from', '#f-to'].forEach(s => $(s).onchange = () => {
+  document.querySelectorAll('[data-range]').forEach(b => b.classList.remove('on'));
   render();
 });
 $('#rows').onclick = e => {
@@ -338,6 +408,7 @@ async function openOrder(o) {
     ? `Nalog br. ${o.broj} – ${o.client_name || o.vehicle_plate || ''}` : 'Novi nalog';
   $('#btn-pdf').hidden = !o;
   $('#btn-zip').hidden = !o || !(o.photos || []).length;
+  $('#btn-delete').hidden = !o || myRole !== 'dispecer';
   if (o) {
     for (const el of f.elements) {
       if (!el.name) continue;
@@ -384,6 +455,41 @@ $('#btn-save').onclick = async () => {
     : await sb.from('work_orders').insert(row);
   $('#btn-save').disabled = false;
   if (error) { alert('Čuvanje nije uspelo: ' + error.message); return; }
+  closeModal();
+  load();
+};
+
+// ====== Brisanje naloga ======
+$('#btn-delete').onclick = async () => {
+  const o = editing;
+  if (!o) return;
+  const name = o.client_name || o.vehicle_plate || 'bez imena';
+  if (!confirm(`Obrisati nalog br. ${o.broj} (${name})?\n\n` +
+               `Nalog i sve njegove fotografije biće trajno obrisani. Ovo se ne može vratiti.`)) return;
+
+  const btn = $('#btn-delete');
+  btn.disabled = true;
+  const { data, error } = await sb.from('work_orders').delete().eq('id', o.id).select('id');
+  btn.disabled = false;
+  if (error) { alert('Brisanje nije uspelo: ' + error.message); return; }
+  if (!data || !data.length) {
+    alert('Nalog nije obrisan. Proverite da vaš nalog u tabeli profiles ima ulogu "dispecer".');
+    return;
+  }
+
+  // Brisanje fotografija iz Storage-a (i onih koje su u folderu naloga a nisu u listi)
+  try {
+    const paths = new Set(o.photos || []);
+    const { data: files } = await sb.storage.from(BUCKET).list(o.id, { limit: 1000 });
+    (files || []).forEach(f => paths.add(`${o.id}/${f.name}`));
+    if (paths.size) {
+      const { error: e2 } = await sb.storage.from(BUCKET).remove([...paths]);
+      if (e2) throw e2;
+    }
+  } catch (e) {
+    alert('Nalog je obrisan, ali fotografije nisu: ' + e.message);
+  }
+
   closeModal();
   load();
 };
@@ -533,8 +639,10 @@ $('#btn-csv').onclick = () => {
   };
   const lines = [cols.map(c => c[1]), ...filtered().map(o => cols.map(([k]) => cell(o, k)))]
     .map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(';'));
+  const from = $('#f-from').value, to = $('#f-to').value;
+  const range = from || to ? `_${from || 'pocetak'}_do_${to || 'danas'}` : '';
   saveBlob(new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }),
-    `radni-nalozi-${new Date().toISOString().slice(0, 10)}.csv`);
+    `radni-nalozi-${new Date().toISOString().slice(0, 10)}${range}.csv`);
 };
 
 setInterval(() => { if (!$('#app').hidden && $('#modal').hidden) load(); }, 60000);
