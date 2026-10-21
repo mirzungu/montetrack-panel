@@ -497,4 +497,175 @@ $('#btn-delete').onclick = async () => {
       if (e2) throw e2;
     }
   } catch (e) {
-    alert('Nalog je obrisan, ali fotografije nisu: ' +
+    alert('Nalog je obrisan, ali fotografije nisu: ' + e.message);
+  }
+
+  closeModal();
+  load();
+};
+
+$('#btn-pdf').onclick = () => editing && exportPdf(editing);
+$('#btn-zip').onclick = () => editing && downloadPhotos(editing);
+
+// ====== PDF radnog naloga ======
+async function exportPdf(o) {
+  // Prozor se otvara odmah, da ga browser ne bi blokirao
+  const w = window.open('', '_blank');
+  if (!w) { alert('Browser je blokirao novi prozor. Dozvolite pop-up prozore za ovaj sajt.'); return; }
+  w.document.write('<p style="font-family:sans-serif;padding:20px">Pripremam radni nalog…</p>');
+
+  let urls = [];
+  try { urls = await signedUrls(o.photos); } catch (e) { /* PDF i bez slika */ }
+
+  const logo = new URL('logo_montetrack.png', location.href).href;
+  const row = (l, v) => `<tr><th>${l}</th><td>${esc(v) || '—'}</td></tr>`;
+  const equipRows = EQUIP.map(([h, m, l]) =>
+    `<tr><th>${l}</th><td>${o[h] ? 'Da' + (o[m] ? ' – ' + esc(o[m]) : '') : 'Ne'}</td></tr>`).join('');
+  const photosHtml = urls.length ? `
+    <div class="annex">
+      <h2>Prilog: fotografije vozila (${urls.length})</h2>
+      <div class="photos">${urls.map(u => `<img src="${esc(u)}">`).join('')}</div>
+    </div>` : '';
+  const title = `Radni nalog ${o.broj}${o.vehicle_plate ? ' - ' + o.vehicle_plate : ''}`;
+
+  const html = `<!DOCTYPE html><html lang="sr"><head><meta charset="UTF-8">
+<title>${esc(title)}</title>
+<style>
+  @page { size: A4; margin: 14mm; }
+  body { font-family: Arial, Helvetica, sans-serif; font-size: 12px; color: #111; margin: 0;
+         -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .head { display: flex; justify-content: space-between; align-items: center;
+          border-bottom: 3px solid #DF2629; padding-bottom: 8px; margin-bottom: 12px; }
+  .head img { height: 50px; }
+  .head h1 { font-size: 20px; margin: 0; text-align: right; }
+  .head .sub { font-size: 11px; color: #555; text-align: right; }
+  h2 { font-size: 12px; background: #1B1F38; color: #fff; padding: 5px 8px; margin: 14px 0 0; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border: 1px solid #C9CCD3; padding: 5px 8px; text-align: left; vertical-align: top; }
+  th { width: 36%; background: #F3F4F6; font-weight: 600; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .notes { border: 1px solid #C9CCD3; padding: 8px; min-height: 50px; white-space: pre-wrap; }
+  .sign { display: flex; justify-content: space-between; margin-top: 40px; break-inside: avoid; }
+  .sign > div { width: 42%; text-align: center; }
+  .sign .sname { font-size: 13px; font-weight: 600; min-height: 18px; margin-bottom: 28px; }
+  .sign .sline { border-top: 1px solid #333; padding-top: 4px; font-size: 11px; color: #444; }
+  .annex { break-before: page; }
+  .photos { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
+  .photos img { width: 100%; height: 75mm; object-fit: cover; border: 1px solid #C9CCD3; break-inside: avoid; }
+  .foot { margin-top: 14px; font-size: 10px; color: #777; }
+</style></head><body>
+  <div class="head">
+    <img src="${esc(logo)}" onerror="this.style.display='none'">
+    <div><h1>RADNI NALOG br. ${esc(o.broj)}</h1>
+      <div class="sub">Kreiran: ${fmtDate(o.created_at)} · Izmenjen: ${fmtDate(o.updated_at)}</div></div>
+  </div>
+
+  <div class="cols">
+    <div><h2>Osnovni podaci</h2><table>
+      ${row('Tip posla', JOBS[o.job_type] || o.job_type)}
+      ${row('Status', statusLabel(o.status))}
+      ${row('Tehničar', techName(o.assigned_to))}
+    </table></div>
+    <div><h2>Klijent</h2><table>
+      ${row('Naziv', o.client_name)}
+      ${row('Adresa', o.address)}
+    </table></div>
+  </div>
+
+  <div class="cols">
+    <div><h2>Vozilo</h2><table>
+      ${row('Registarske oznake', o.vehicle_plate)}
+      ${row('Marka i model', o.vehicle_model)}
+      ${row('Kilometraža / radni sati', o.mileage)}
+    </table></div>
+    <div><h2>GPS uređaj</h2><table>
+      ${row('IMEI', o.imei)}
+      ${row('ICCID', o.iccid)}
+    </table></div>
+  </div>
+
+  <h2>Dodatna oprema</h2>
+  <table>${equipRows}</table>
+
+  <h2>Napomena</h2>
+  <div class="notes">${esc(o.notes) || '—'}</div>
+
+  <div class="sign">
+    <div>
+      <div class="sname">${esc(serviserName(o))}</div>
+      <div class="sline">Serviser</div>
+    </div>
+    <div>
+      <div class="sname">${esc(o.client_signer)}</div>
+      <div class="sline">Kontakt osoba klijenta</div>
+    </div>
+  </div>
+  <div class="foot">Montetrack Telematics · dokument generisan ${fmtDate(new Date())}</div>
+
+  ${photosHtml}
+  <script>window.onload = () => setTimeout(() => window.print(), 300);<\/script>
+</body></html>`;
+
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+// ====== Preuzimanje slika u ZIP-u ======
+async function downloadPhotos(o) {
+  const paths = o.photos || [];
+  if (!paths.length) { alert('Ovaj nalog nema fotografija.'); return; }
+  const btn = $('#btn-zip');
+  btn.disabled = true;
+  try {
+    const zip = new JSZip();
+    const base = (o.vehicle_plate || 'nalog').replace(/[^\w-]+/g, '_');
+    for (let i = 0; i < paths.length; i++) {
+      btn.textContent = `Preuzimam ${i + 1}/${paths.length}…`;
+      const { data, error } = await sb.storage.from(BUCKET).download(paths[i]);
+      if (error) throw error;
+      zip.file(`${base}_${i + 1}.jpg`, data);
+    }
+    btn.textContent = 'Pakujem…';
+    saveBlob(await zip.generateAsync({ type: 'blob' }), `nalog-${o.broj}-${base}.zip`);
+  } catch (e) {
+    alert('Preuzimanje nije uspelo: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '🖼 Slike (ZIP)';
+  }
+}
+
+// ====== Izvoz u Excel (CSV) ======
+$('#btn-csv').onclick = () => {
+  const cols = [
+    ['broj', 'Broj'], ['created_at', 'Kreiran'], ['updated_at', 'Izmenjen'], ['status', 'Status'],
+    ['job_type', 'Posao'], ['assigned_to', 'Tehničar'], ['client_name', 'Klijent'], ['address', 'Adresa'],
+    ['vehicle_plate', 'Tablice'], ['vehicle_model', 'Vozilo'], ['mileage', 'Kilometraža / radni sati'],
+    ['imei', 'IMEI'], ['iccid', 'ICCID'], ['rfid_model', 'RFID'], ['can_model', 'CAN'],
+    ['sonda_model', 'Sonda'], ['protokomer_model', 'Protokomer'], ['notes', 'Napomena'],
+    ['technician_name', 'Serviser'], ['client_signer', 'Kontakt osoba klijenta']
+  ];
+  const cell = (o, k) => {
+    if (k === 'created_at' || k === 'updated_at') return fmtDate(o[k]);
+    if (k === 'status') return statusLabel(o.status);
+    if (k === 'job_type') return JOBS[o.job_type] || o.job_type;
+    if (k === 'assigned_to') return techName(o.assigned_to);
+    if (k === 'technician_name') return serviserName(o);
+    if (k === 'imei' || k === 'iccid') return o[k] ? `="${o[k]}"` : '';
+    const eq = EQUIP.find(([, m]) => m === k);
+    if (eq) return o[eq[0]] ? (o[k] || 'Da') : '';
+    return o[k] ?? '';
+  };
+  const lines = [cols.map(c => c[1]), ...filtered().map(o => cols.map(([k]) => cell(o, k)))]
+    .map(r => r.map(v => '"' + String(v).replace(/"/g, '""') + '"').join(';'));
+  const from = $('#f-from').value, to = $('#f-to').value;
+  const range = from || to ? `_${from || 'pocetak'}_do_${to || 'danas'}` : '';
+  saveBlob(new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' }),
+    `radni-nalozi-${new Date().toISOString().slice(0, 10)}${range}.csv`);
+};
+
+setInterval(() => { if (!$('#app').hidden && $('#modal').hidden) load(); }, 60000);
+</script>
+</body>
+</html>
